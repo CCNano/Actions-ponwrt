@@ -2,7 +2,7 @@
 # https://github.com/P3TERX/Actions-OpenWrt
 #
 # File: .github/workflows/build.yml
-# Description: Build PonWrt (AN7581 / AN7583), called by dev.yml and release.yml
+# Description: Build PonWrt (AN7583), called by dev.yml and release.yml
 #
 # Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
 #
@@ -36,7 +36,7 @@ on:
         default: 1
 
 env:
-  REPO_URL: https://github.com/1018ji/ponwrt
+  REPO_URL: https://github.com/pbs05/ponwrt
   REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   DIY_P1_SH: diy-part1.sh
@@ -50,7 +50,7 @@ env:
   GH_REPO: ${{ github.repository }}
 
 # 流程：prepare → 固件
-# prepare 拉取源码和 feeds 后打包传给固件 job，保证两个机型编译的源码完全一致
+# prepare 拉取源码和 feeds 后打包传给固件 job，保证编译使用同一份源码
 jobs:
   prepare:
     runs-on: ubuntu-22.04
@@ -136,15 +136,13 @@ jobs:
         restore-keys: |
           openwrt-dl-
 
-    # 两个机型一起下载，dl 缓存只在这里保存一份；源码已经打包，这里改动不影响固件 job
+    # dl 缓存只在这里保存一份；源码已经打包，这里改动不影响固件 job
     - name: Download package
       id: package
       run: |
         cd openwrt
-        for CONFIG in an7581.config an7583.config; do
-          $GITHUB_WORKSPACE/.github/scripts/load-config.sh $CONFIG
-          make download -j$(nproc)
-        done
+        $GITHUB_WORKSPACE/.github/scripts/load-config.sh an7583.config
+        make download -j$(nproc)
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
         echo "dl_key=openwrt-dl-$(find dl -type f -printf '%P %s\n' | LC_ALL=C sort | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
@@ -170,7 +168,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [an7581, an7583]
+        target: [an7583]
     env:
       CONFIG_FILE: ${{ matrix.target }}.config
       FREE_DISK: true
@@ -214,7 +212,7 @@ jobs:
         detached: true
         limit-access-to-actor: true
 
-    # 使用缓存 / 重新编译时 prepare 已经把两个机型的源码包下全并存入 dl 缓存，这里跳过；
+    # 使用缓存 / 重新编译时 prepare 已经把源码包下全并存入 dl 缓存，这里跳过；
     # 万一缺文件，编译时 make 也会自动下载
     - name: Download package
       if: env.CACHE_MODE == '只读缓存' || env.CACHE_MODE == '不使用缓存'

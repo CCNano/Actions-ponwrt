@@ -2,7 +2,7 @@
 # https://github.com/P3TERX/Actions-OpenWrt
 #
 # File: .github/workflows/release.yml
-# Description: Build PonWrt (AN7581 / AN7583) and publish RELEASE
+# Description: Build PonWrt (AN7583) and publish RELEASE
 #
 # Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
 #
@@ -28,7 +28,7 @@ on:
           - 不使用缓存
 
 env:
-  REPO_URL: https://github.com/1018ji/ponwrt
+  REPO_URL: https://github.com/pbs05/ponwrt
   REPO_BRANCH: master
   TZ: Asia/Shanghai
   GH_REPO: ${{ github.repository }}
@@ -98,7 +98,7 @@ jobs:
 
   publish:
     name: 发布
-    # 任一机型失败都不发布，否则下次检测到 commit 已发布会跳过，失败的机型就一直没有固件
+    # 编译失败都不发布，否则下次检测到 commit 已发布会跳过，一直没有固件
     needs: [check, build]
     runs-on: ubuntu-22.04
 

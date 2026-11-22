@@ -2,7 +2,7 @@
 # https://github.com/P3TERX/Actions-OpenWrt
 #
 # File: .github/workflows/dev.yml
-# Description: Build PonWrt (AN7581 / AN7583) as DEV artifacts
+# Description: Build PonWrt (AN7583) as DEV artifacts
 #
 # Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
 #
