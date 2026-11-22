@@ -1,0 +1,21 @@
+{
+	"name": "PonWrt Build (Ubuntu 22.04)",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+
+	"hostRequirements": {
+		"cpus": 2,
+		"memory": "8gb",
+		"storage": "32gb"
+	},
+	"containerEnv": {
+		"DEBIAN_FRONTEND": "noninteractive",
+		"CCACHE_DIR": "/workspaces/.ccache",
+		"CCACHE_MAXSIZE": "3G",
+		"CCACHE_COMPILERCHECK": "%compiler% -dumpmachine; %compiler% -dumpversion"
+	},
+	"onCreateCommand": "bash .devcontainer/on-create.sh",
+	"waitFor": "onCreateCommand",
+	"remoteUser": "vscode"
+}

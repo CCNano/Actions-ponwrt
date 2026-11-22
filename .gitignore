@@ -1,0 +1,8 @@
+# CodeArts Agent local state
+.codeartsdoer/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

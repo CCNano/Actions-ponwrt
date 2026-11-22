@@ -1,0 +1,152 @@
+#
+# https://github.com/P3TERX/Actions-OpenWrt
+#
+# File: .github/workflows/release.yml
+# Description: Build PonWrt (AN7581 / AN7583) and publish RELEASE
+#
+# Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
+#
+# This is free software, licensed under the MIT License.
+# See /LICENSE for more information.
+#
+
+name: RELEASE Builder
+
+on:
+  schedule:
+    - cron: '15 17 * * *'  # UTC 17:15 = 北京时间 01:15
+  workflow_dispatch:
+    inputs:
+      Cache:
+        type: choice
+        required: false
+        default: 使用缓存
+        options:
+          - 使用缓存
+          - 只读缓存
+          - 重新编译
+          - 不使用缓存
+
+env:
+  REPO_URL: https://github.com/1018ji/ponwrt
+  REPO_BRANCH: master
+  TZ: Asia/Shanghai
+  GH_REPO: ${{ github.repository }}
+
+permissions:
+  contents: write
+  actions: write
+
+# DEV 与 RELEASE 共用缓存，排队依次运行，避免同时保存和清理缓存互相覆盖
+concurrency:
+  group: ponwrt-build
+  cancel-in-progress: false
+
+# 流程：check → 编译（build.yml）→ 发布 → cleanup
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      commit: ${{ steps.check.outputs.commit }}
+      config_commit: ${{ steps.check.outputs.config_commit }}
+      tag: ${{ steps.check.outputs.tag }}
+      title: ${{ steps.check.outputs.title }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Check for updates
+      id: check
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        COMMIT=$(git ls-remote "$REPO_URL" "refs/heads/$REPO_BRANCH" | cut -f1)
+        [ -n "$COMMIT" ] || { echo "failed to resolve $REPO_URL $REPO_BRANCH"; exit 1; }
+        # 本仓库中影响固件内容的文件最后一次修改的 commit，改配置后即使上游没更新也重新发布
+        CONFIG_COMMIT=$(git log -1 --format=%H -- '*.config' diy-part1.sh diy-part2.sh feeds.conf.default files)
+        LAST_TAG=$(gh release list --limit 200 --json tagName,name,isDraft,createdAt \
+          --jq '[.[] | select(.isDraft | not) | select(.name | startswith("RELEASE-"))] | sort_by(.createdAt) | last | .tagName // empty')
+        if [ -n "$LAST_TAG" ]; then
+          LAST_COMMITS=$(gh release view "$LAST_TAG" --json body --jq .body | grep -oE '[0-9a-f]{40}' | head -n2 | xargs)
+          if [ "$LAST_COMMITS" = "$COMMIT $CONFIG_COMMIT" ]; then
+            echo "ponwrt $COMMIT with config $CONFIG_COMMIT already released in $LAST_TAG, skip build"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        fi
+        echo "build=true" >> "$GITHUB_OUTPUT"
+        echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+        echo "config_commit=$CONFIG_COMMIT" >> "$GITHUB_OUTPUT"
+        echo "tag=$(date +%Y-%m-%d-%H-%M-%S)" >> "$GITHUB_OUTPUT"
+        echo "title=RELEASE-$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: 编译
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      cache_mode: ${{ inputs.Cache || '使用缓存' }}
+      # 固定为 check 时记录的 commit，保证编译的版本与发布说明一致
+      commit: ${{ needs.check.outputs.commit }}
+      artifact_prefix: RELEASE
+      retention_days: 1
+
+  publish:
+    name: 发布
+    # 任一机型失败都不发布，否则下次检测到 commit 已发布会跳过，失败的机型就一直没有固件
+    needs: [check, build]
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Download firmware
+      uses: actions/download-artifact@v8
+      with:
+        pattern: RELEASE-*
+        path: firmware
+        merge-multiple: true
+
+    - name: Create release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ needs.check.outputs.tag }}
+        TITLE: ${{ needs.check.outputs.title }}
+        COMMIT: ${{ needs.check.outputs.commit }}
+        CONFIG_COMMIT: ${{ needs.check.outputs.config_commit }}
+      run: |
+        ls -l firmware
+        NOTES="ponwrt: ${REPO_URL}/commit/${COMMIT}
+        config: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${CONFIG_COMMIT}"
+        gh release create "$TAG" firmware/* --title "$TITLE" --notes "$NOTES" --target "$GITHUB_SHA"
+
+    - name: Keep latest 7 releases
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release list --limit 200 --json tagName,name,isDraft,createdAt \
+          --jq '[.[] | select(.isDraft | not) | select(.name | startswith("RELEASE-"))] | sort_by(.createdAt) | reverse | .[7:] | .[].tagName' |
+        while read -r OLD; do
+          echo "deleting release $OLD"
+          gh release delete "$OLD" --yes --cleanup-tag
+        done
+
+  cleanup:
+    needs: [check, build, publish]
+    if: always()
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Keep latest 7 workflow runs
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh run list --workflow "${{ github.workflow }}" --status completed --limit 200 --json databaseId,createdAt \
+          --jq 'sort_by(.createdAt) | reverse | .[6:] | .[].databaseId' |
+        while read -r ID; do
+          echo "deleting workflow run $ID"
+          gh run delete "$ID"
+        done

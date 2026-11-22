@@ -1,0 +1,74 @@
+#
+# https://github.com/P3TERX/Actions-OpenWrt
+#
+# File: .github/workflows/dev.yml
+# Description: Build PonWrt (AN7581 / AN7583) as DEV artifacts
+#
+# Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
+#
+# This is free software, licensed under the MIT License.
+# See /LICENSE for more information.
+#
+
+name: DEV Builder
+
+on:
+  workflow_dispatch:
+    inputs:
+      SSH:
+        type: choice
+        required: false
+        default: 否
+        options:
+          - 否
+          - 是
+      Cache:
+        type: choice
+        required: false
+        default: 使用缓存
+        options:
+          - 使用缓存
+          - 只读缓存
+          - 重新编译
+          - 不使用缓存
+
+env:
+  GH_REPO: ${{ github.repository }}
+
+# 删除旧缓存需要 actions 写权限
+permissions:
+  contents: read
+  actions: write
+
+# DEV 与 RELEASE 共用缓存，排队依次运行，避免同时保存和清理缓存互相覆盖
+concurrency:
+  group: ponwrt-build
+  cancel-in-progress: false
+
+# 流程：编译（build.yml）→ cleanup
+jobs:
+  build:
+    name: 编译
+    uses: ./.github/workflows/build.yml
+    with:
+      cache_mode: ${{ inputs.Cache || '使用缓存' }}
+      ssh: ${{ inputs.SSH == '是' }}
+      artifact_prefix: DEV
+      retention_days: 3
+
+  cleanup:
+    needs: build
+    if: always()
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Keep latest 7 workflow runs
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh run list --workflow "${{ github.workflow }}" --status completed --limit 200 --json databaseId,createdAt \
+          --jq 'sort_by(.createdAt) | reverse | .[6:] | .[].databaseId' |
+        while read -r ID; do
+          echo "deleting workflow run $ID"
+          gh run delete "$ID"
+        done
